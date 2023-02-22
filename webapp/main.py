@@ -2,8 +2,9 @@ import flet as ft
 import pandas as pd
 import pyrebase
 
+
 def main(page: ft.Page):
-    # secretKey qwertyuiop
+    # secretKey qwertyuiops
     config = {
         "apiKey": "AIzaSyCYLCqr-XaeOfrklNBFfCpgC_MROqFzZyw",
         "authDomain": "dispens-o-tron.firebaseapp.com",
@@ -22,14 +23,8 @@ def main(page: ft.Page):
     emailBox = ft.TextField(hint_text="Student Email", width=300, autofocus=True)
     passBox = ft.TextField(hint_text="Password", width=300)
 
-    # --------------------------------------------------
-    # data = {'andy': ['1'], 'john': ['2']}
-    # df = pd.DataFrame(data=data)
-
-    # db.child("users").push(d)
-    # db.child("users").set(data)
-
-    # --------------------------------------------------
+    class User:
+        email = "blank"
 
     def route_change(route):
         page.views.clear()
@@ -37,6 +32,25 @@ def main(page: ft.Page):
             ft.View(
                 "/",
                 [
+                    ft.Row(
+                        [
+                            ft.Text(
+                                "Dispense-o-Tron 9000",
+                                size=30,
+                                color=ft.colors.ORANGE_800,
+                                weight=ft.FontWeight.NORMAL,
+                            ),
+                        ],
+                        alignment = ft.MainAxisAlignment.CENTER,
+                    ),
+                    ft.Row(
+                        [
+                            ft.Image(src=f"/vendingimage.png",
+                                     width=250,
+                                     height=300)
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
                     ft.Row(
                         [
                             emailBox
@@ -67,11 +81,33 @@ def main(page: ft.Page):
                     [
                         ft.Row(
                             [
-                                ft.ElevatedButton(text="Success", on_click=lambda _: page.go("/"))
+                                ft.Text(
+                                    "Please select a product",
+                                    size=30,
+                                    color=ft.colors.ORANGE_800,
+                                    weight=ft.FontWeight.NORMAL,
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.CENTER,
+                        ),
+                        ft.Row(
+                            [
+                                ft.Image(src=f"/1image.png",
+                                         width=150,
+                                         height=150),
+                                ft.ElevatedButton(text="Item 1", on_click=purchase1)
+                            ],
+                            alignment=ft.MainAxisAlignment.CENTER,
+                        ),
+                        ft.Row(
+                            [
+                                ft.Image(src=f"/2image.jpg",
+                                         width=150,
+                                         height=150),
+                                ft.ElevatedButton(text="Item 2")
                             ],
                             alignment=ft.MainAxisAlignment.CENTER,
                         )
-
                     ],
                     vertical_alignment=ft.MainAxisAlignment.CENTER,
                 )
@@ -97,6 +133,7 @@ def main(page: ft.Page):
 
     def onSubmit(e):
         email = emailBox.value
+        User.email = email
         password = passBox.value
         result = validate(email, password)
         if result:
@@ -104,13 +141,16 @@ def main(page: ft.Page):
         else:
             page.go("/fail")
 
+    def purchase1(e):
+        data = {'adam': ['3'], 'james': ['4']}
+
     def validate(email, password):
         users = db.child("users").get()
         df = pd.DataFrame(users.val())
         if (email not in df):
             return False
         if (df[email][0]) == password:
-            emitSignal()
+            # emitSignal()
             return True
         return False
 
@@ -124,4 +164,8 @@ def main(page: ft.Page):
     page.go(page.route)
 
 
-ft.app(target=main)
+ft.app(target=main,
+       port=8000,
+       view=ft.WEB_BROWSER,
+       assets_dir="images"
+       )

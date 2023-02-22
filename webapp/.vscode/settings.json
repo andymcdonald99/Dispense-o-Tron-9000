@@ -1,0 +1,4 @@
+{
+    "appService.defaultWebAppToDeploy": "/subscriptions/b71f1252-156e-4f23-bd9e-dd6c5c69f07e/resourceGroups/appsvc_linux_centralus/providers/Microsoft.Web/sites/flettest2",
+    "appService.deploySubpath": "."
+}
