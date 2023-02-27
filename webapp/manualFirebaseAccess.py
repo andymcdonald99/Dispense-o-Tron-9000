@@ -1,13 +1,23 @@
-import requests
-import json
+import pandas as pd
+import pyrebase
 
-app_id = "0e0bd04d"
-app_key = "239446a4c5bd6b494b0bc004c551ae68"
-language = "en-gb"
-word_id = "father"
-url = "https://od-api.oxforddictionaries.com:443/api/v2/entries/" + language + "/" + word_id.lower()
-r = requests.get(url, headers={"app_id": app_id, "app_key": app_key})
-json_object = json.loads(r.content)
-pretty_json = json.dumps(json_object, indent=3)
-test = json_object['results'][0]['lexicalEntries']
-print(pretty_json)
+config = {
+    "apiKey": "AIzaSyCYLCqr-XaeOfrklNBFfCpgC_MROqFzZyw",
+    "authDomain": "dispens-o-tron.firebaseapp.com",
+    "databaseURL": "https://dispens-o-tron-default-rtdb.europe-west1.firebasedatabase.app/",
+    "projectId": "dispens-o-tron",
+    "storageBucket": "dispens-o-tron.appspot.com",
+    "messagingSenderId": "1048399231705",
+    "appId": "1:1048399231705:web:846ee976b23e7db1089cc8",
+}
+firebase = pyrebase.initialize_app(config)
+db = firebase.database()
+
+data = {
+    'orderNo': "1",
+    'user': 'andy',
+    'item': 'item1',
+    'price': '1'
+}
+
+db.child("orders").child("order1").set(data)
