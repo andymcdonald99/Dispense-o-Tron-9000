@@ -1,5 +1,6 @@
 import pandas as pd
 import pyrebase
+import requests
 
 config = {
     "apiKey": "AIzaSyCYLCqr-XaeOfrklNBFfCpgC_MROqFzZyw",
@@ -13,11 +14,20 @@ config = {
 firebase = pyrebase.initialize_app(config)
 db = firebase.database()
 
+auth = firebase.auth()
+
 data = {
     'orderNo': "1",
     'user': 'andy',
     'item': 'item1',
     'price': '1'
 }
-
-db.child("orders").child("order1").set(data)
+#
+# db.child("orders").child("order1").set(data)
+email = "mcdonaa6@tcd.ie"
+password = "vendme"
+try:
+    user = auth.create_user_with_email_and_password(email, password)
+except requests.exceptions.HTTPError as err:
+    print("Invalid Password")
+print("bleh")
