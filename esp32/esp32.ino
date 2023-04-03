@@ -3,11 +3,20 @@
 #include <ArduinoJson.h>
 #include <LiquidCrystal.h>
 #include <WebSocketsServer.h>
+#include <ESP_Signer.h>
 
 const char* ssid = "ssid";
-const char* password = "password";
+const char* password = "pass";
 const char *soft_ap_ssid = "DispenseOTron";
 const char *soft_ap_password = "90000000";
+
+#define PROJECT_ID 
+#define CLIENT_EMAIL 
+const char PRIVATE_KEY[] PROGMEM = 
+
+SignerConfig signerConfig;
+
+String firebaseAccessToken = "";
 
 String serverName = "https://dispens-o-tron-default-rtdb.europe-west1.firebasedatabase.app";
 String path = "/orders.json";
@@ -33,6 +42,7 @@ void dispense(int itemNumber);
 void handleFirebaseResponse(String payload);
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length);
 void removeOrder(String key);
+void tokenStatusCallback(TokenInfo info);
 
 void setup(){
   Serial.begin(115200);
@@ -58,12 +68,34 @@ void setup(){
   Serial.println(WiFi.softAPIP());
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);
+
+  signerConfig.service_account.data.client_email = CLIENT_EMAIL;
+  signerConfig.service_account.data.project_id = PROJECT_ID;
+  signerConfig.service_account.data.private_key = PRIVATE_KEY;
+
+  signerConfig.signer.expiredSeconds = 3600;
+
+  signerConfig.signer.preRefreshSeconds = 60;
+
+  signerConfig.signer.tokens.scope = "https://www.googleapis.com/auth/cloud-platform, https://www.googleapis.com/auth/userinfo.email";
+
+  signerConfig.token_status_callback = tokenStatusCallback;
+
+  Signer.begin(&signerConfig);
+  Serial.println("Awaiting access token");
+  while(!Signer.tokenReady()){
+    Serial.print(".");
+  }
+  Serial.println("Got token succesfully");
 }
 
 void loop(){
   webSocket.loop();
   if(millis() - lastTime > sleepTime || millis() < lastTime){
     lastTime = millis();
+    args = "?access_token=" + firebaseAccessToken;
+    serverPath = serverName + path + args;
+    Serial.println(serverPath);
     http.begin(client, serverPath);
       
     int httpResponseCode = http.GET();
@@ -102,8 +134,8 @@ bool awaitPayment(int num, String colour){
 
 void removeOrder(String key){
   String removePath = "/orders/" + key + ".json";
-  String removeArgs = "";
-  String removeUri = serverName + removePath + args;
+  String removeArgs = "?access_token=" + firebaseAccessToken;
+  String removeUri = serverName + removePath + removeArgs;
   http.begin(client, removeUri);
     
   int httpResponseCode = http.sendRequest("DELETE");
@@ -168,5 +200,21 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
   }
   else if(type == WStype_DISCONNECTED){
     Serial.println("client disconnected");
+  }
+}
+
+void tokenStatusCallback(TokenInfo info)
+{
+  Serial.println("got new access token");
+  if (info.status != esp_signer_token_status_error)
+  {
+    Serial.printf("Token info: type = %s, status = %s\n", Signer.getTokenType(info).c_str(), Signer.getTokenStatus(info).c_str());
+    if (info.status == esp_signer_token_status_ready)
+      Serial.printf("Token: %s\n", Signer.accessToken().c_str());
+    firebaseAccessToken = Signer.accessToken().c_str();
+  }
+  else{
+    firebaseAccessToken = "";
+    Serial.println("Error");
   }
 }
