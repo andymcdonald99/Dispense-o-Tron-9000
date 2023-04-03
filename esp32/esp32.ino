@@ -1,119 +1,172 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <ArduinoJson.h>
 #include <LiquidCrystal.h>
+#include <WebSocketsServer.h>
 
 const char* ssid = "ssid";
 const char* password = "password";
+const char *soft_ap_ssid = "DispenseOTron";
+const char *soft_ap_password = "90000000";
 
 String serverName = "https://dispens-o-tron-default-rtdb.europe-west1.firebasedatabase.app";
-String path = "/ready_to_dispense.json";
-String args = "?auth=api key";
+String path = "/orders.json";
+String args = "";
 String serverPath = serverName + path + args;
 
-LiquidCrystal lcd(19, 23, 18, 1, 3, 15);
+LiquidCrystal lcd(13, 12, 14, 27, 15, 16);
 
 int sleepTime = 5000;
-//int motorStep = 8;
+unsigned long lastTime = 0;
+uint8_t clientID = 0;
 
 HTTPClient http;
-WiFiClientSecure client;
+WiFiClientSecure client; 
+WebSocketsServer webSocket = WebSocketsServer(81);   
+StaticJsonDocument<200> doc;
+
 
 void printLcd(String line_one, String line_two);
-//void moveMotor(int steps);
+void moveMotor(int steps, int itemNumber);
+bool awaitPayment(int num, String colour);
+void dispense(int itemNumber);
+void handleFirebaseResponse(String payload);
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length);
+void removeOrder(String key);
 
 void setup(){
-    Serial.begin(9600);
-//    pinMode(motorStep, OUTPUT);
-//    digitalWrite(motorStep, LOW);
-    delay(1000);
+  Serial.begin(115200);
 
-    lcd.begin(16, 2);
-    printLcd("Dispense-O-Tron", "9000");
-    
-    Serial.println(ssid);
-    Serial.println(password);
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid, password);
-    Serial.println("\nConnecting");
+  lcd.begin(16, 2);
+  printLcd("Dispense-O-Tron", "9000");
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(soft_ap_ssid, soft_ap_password);
+  WiFi.begin(ssid, password);
+  Serial.println("\nConnecting");
 
-    while(WiFi.status() != WL_CONNECTED){
-        Serial.print(".");
-        delay(100);
-    }
+  while(WiFi.status() != WL_CONNECTED){
+      Serial.print(".");
+      delay(100);
+  }
 
-    Serial.println("\nConnected to the WiFi network");
-    Serial.print("Local ESP32 IP: ");
-    Serial.println(WiFi.localIP());
+  Serial.println("\nConnected to the WiFi network");
+  Serial.print("Local ESP32 IP: ");
+  Serial.println(WiFi.localIP());
 
-    client.setInsecure();
+  client.setInsecure();
+  Serial.print("ap ip: ");
+  Serial.println(WiFi.softAPIP());
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
 }
 
 void loop(){
-  delay(sleepTime);
-  http.begin(client, serverPath);
-    
-  int httpResponseCode = http.GET();
-  Serial.println("response code");
-  Serial.println(httpResponseCode);
+  webSocket.loop();
+  if(millis() - lastTime > sleepTime || millis() < lastTime){
+    lastTime = millis();
+    http.begin(client, serverPath);
+      
+    int httpResponseCode = http.GET();
+    Serial.println("response code: ");
+    Serial.println(httpResponseCode);
 
-  if (httpResponseCode > 0) {
-    Serial.println("HTTP Response code: ");
-    Serial.println(httpResponseCode);
-    String payload = http.getString();
-    Serial.println(payload);
-    if(payload != "null"){
-      printLcd(payload, "");
-//      moveMotor(50);
+    if (400 > httpResponseCode && httpResponseCode > 0) {
+      String payload = http.getString();
+      http.end();
+      handleFirebaseResponse(payload);
     }
-    else{
+    else {
+      Serial.println("Error code: ");
+      Serial.println(httpResponseCode);
       printLcd("Dispense-O-Tron", "9000");
+      http.end();
     }
   }
-  else {
-    Serial.println("Error code: ");
-    Serial.println(httpResponseCode);
-  }
-  http.end();
 
 }
 
 void printLcd(String line_one, String line_two){
       line_one += "                            ";
       line_two += "                            ";
+      Serial.println("printlcd " + line_one + line_two);
       lcd.setCursor(0, 0);
       lcd.print(line_one);
       lcd.setCursor(0, 1);
       lcd.print(line_two);
 }
-/*
-void moveMotor(int steps){
-  digitalWrite(motorStep, LOW);
-  for(int i = 1; i < steps; i++){
-    digitalWrite(motorStep, HIGH);
-    delayMicroseconds(300);
-    digitalWrite(motorStep, LOW);
-    delayMicroseconds(300);
+
+bool awaitPayment(int num, String colour){
+  delay(2000);
+  return true;
+}
+
+void removeOrder(String key){
+  String removePath = "/orders/" + key + ".json";
+  String removeArgs = "";
+  String removeUri = serverName + removePath + args;
+  http.begin(client, removeUri);
+    
+  int httpResponseCode = http.sendRequest("DELETE");
+  Serial.println("response code: ");
+  Serial.println(httpResponseCode);
+
+  if (400 > httpResponseCode && httpResponseCode > 0) {
+    String payload = http.getString();
+    http.end();
+    handleFirebaseResponse(payload);
   }
 }
-*/
 
-// // include the library code:
-// #include <LiquidCrystal.h>
- 
-// // initialize the library with the numbers of the interface pins
-// LiquidCrystal lcd(19, 23, 18, 17, 16, 15);
- 
-// void setup() {
-//   // set up the LCD's number of columns and rows:
-//   lcd.begin(16, 2);
-//   // Print a message to the LCD.
-//   lcd.print("circuitschools.");
-// }
- 
-// void loop() {
-//   // set the cursor to column 0, line 1
-//   // (note: line 1 is the second row, since counting begins with 0):
-//   lcd.setCursor(0, 1);
-//   // print the number of seconds since reset:
-//   lcd.print(millis() / 1000);
-// }
+void dispense(String itemNumber){
+  if (webSocket.connectedClients() > 0) {
+    Serial.print("Sending message");
+    Serial.println(itemNumber);
+    webSocket.sendTXT(clientID, itemNumber.c_str());
+  }
+}
+
+
+void handleFirebaseResponse(String payload){
+      if(payload != "null"){
+        deserializeJson(doc, payload);
+        JsonObject docAsJson = doc.as<JsonObject>();
+        String key = docAsJson.begin()->key().c_str();
+        String name = doc[key]["user"];
+        String cost = doc[key]["price"];
+        String itemNoStr = doc[key]["item"];
+        printLcd("Welcome " + name, "Pay: " + cost);
+        bool paid = awaitPayment(cost.toInt(), "blue");
+        if(paid){
+          printLcd("Dispensing...", "Item " + itemNoStr);
+          dispense(itemNoStr);
+          delay(2000);
+        }
+        else{
+          printLcd("Payment not", "recieved");
+          delay(2000);
+          printLcd("Place order", "again");
+          delay(2000);
+        }
+        removeOrder(key);
+        printLcd("Dispense-O-Tron", "9000");
+      }
+      else{
+        printLcd("Dispense-O-Tron", "9000");
+      }
+}
+
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+  Serial.print("Got message type: ");
+  Serial.println(type);
+  Serial.print("With content: ");
+  Serial.println(String((char *)payload));
+  Serial.print("From client id: ");
+  Serial.println(num);
+  if(type == WStype_CONNECTED){ 
+    Serial.println("client connected");
+    clientID = num;
+  }
+  else if(type == WStype_DISCONNECTED){
+    Serial.println("client disconnected");
+  }
+}
