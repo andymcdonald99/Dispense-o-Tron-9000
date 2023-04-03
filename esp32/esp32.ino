@@ -5,13 +5,13 @@
 #include <WebSocketsServer.h>
 
 const char* ssid = "ssid";
-const char* password = "pass";
+const char* password = "password";
 const char *soft_ap_ssid = "DispenseOTron";
 const char *soft_ap_password = "90000000";
 
 String serverName = "https://dispens-o-tron-default-rtdb.europe-west1.firebasedatabase.app";
 String path = "/orders.json";
-String args = "?auth=api key";
+String args = "";
 String serverPath = serverName + path + args;
 
 LiquidCrystal lcd(13, 12, 14, 27, 15, 16);
@@ -72,14 +72,15 @@ void loop(){
 
     if (400 > httpResponseCode && httpResponseCode > 0) {
       String payload = http.getString();
+      http.end();
       handleFirebaseResponse(payload);
     }
     else {
       Serial.println("Error code: ");
       Serial.println(httpResponseCode);
       printLcd("Dispense-O-Tron", "9000");
+      http.end();
     }
-    http.end();
   }
 
 }
@@ -100,7 +101,20 @@ bool awaitPayment(int num, String colour){
 }
 
 void removeOrder(String key){
-  return;
+  String removePath = "/orders/" + key + ".json";
+  String removeArgs = "";
+  String removeUri = serverName + removePath + args;
+  http.begin(client, removeUri);
+    
+  int httpResponseCode = http.sendRequest("DELETE");
+  Serial.println("response code: ");
+  Serial.println(httpResponseCode);
+
+  if (400 > httpResponseCode && httpResponseCode > 0) {
+    String payload = http.getString();
+    http.end();
+    handleFirebaseResponse(payload);
+  }
 }
 
 void dispense(String itemNumber){
