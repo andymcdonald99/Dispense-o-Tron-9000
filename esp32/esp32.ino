@@ -4,35 +4,39 @@
 #include <LiquidCrystal.h>
 #include <WebSocketsServer.h>
 #include <ESP_Signer.h>
+#include <Preferences.h>
+#include <WebServer.h>
 
-const char* ssid = "ssid";
-const char* password = "pass";
-const char *soft_ap_ssid = "DispenseOTron";
-const char *soft_ap_password = "90000000";
-
-#define PROJECT_ID 
-#define CLIENT_EMAIL 
-const char PRIVATE_KEY[] PROGMEM = 
+//Variables stored in Non-volatile-storage
+String ssid;
+String password;
+String soft_ap_ssid;
+String soft_ap_password;
+String projectId;
+String clientEmail;
+String privateKey;
 
 SignerConfig signerConfig;
 
-String firebaseAccessToken = "";
-
-String serverName = "https://dispens-o-tron-default-rtdb.europe-west1.firebasedatabase.app";
+String serverName;
 String path = "/orders.json";
-String args = "";
-String serverPath = serverName + path + args;
+String args;
+String serverPath;
 
 LiquidCrystal lcd(13, 12, 14, 27, 15, 16);
 
 int sleepTime = 5000;
+int wifiTimeout = 20000;
 unsigned long lastTime = 0;
 uint8_t clientID = 0;
 
 HTTPClient http;
 WiFiClientSecure client; 
 WebSocketsServer webSocket = WebSocketsServer(81);   
+bool slaveReady = false;
 StaticJsonDocument<200> doc;
+
+Preferences preferences;
 
 
 void printLcd(String line_one, String line_two);
@@ -42,21 +46,72 @@ void dispense(int itemNumber);
 void handleFirebaseResponse(String payload);
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length);
 void removeOrder(String key);
+void awaitConfig();
+void awaitWifi();
 void tokenStatusCallback(TokenInfo info);
+
+WebServer httpServer(80);
+void sendHTML();
+void handlePost();
+void handleGet();
 
 void setup(){
   Serial.begin(115200);
+  preferences.begin("dispenseo", true);
+  soft_ap_ssid = preferences.getString("ap_ssid", "DispenseOTron");
+  soft_ap_password = preferences.getString("ap_password", "90000000");
+  
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(soft_ap_ssid.c_str(), soft_ap_password.c_str());
+  httpServer.on("/", HTTP_GET, handleGet);
+  httpServer.on("/", HTTP_POST, handlePost);
+  httpServer.onNotFound(handle_NotFound);
+  httpServer.begin();
+
+  webSocket.onEvent(webSocketEvent);
+  webSocket.begin();
+  
+  ssid = preferences.getString("ssid", "");
+  password = preferences.getString("password", "");
+  serverName = preferences.getString("project_server", "");
+  projectId = preferences.getString("project_id", "");
+  clientEmail = preferences.getString("client_email", "");
+  privateKey = preferences.getString("private_key", "");
+  preferences.end();
+
+  Serial.print("ssid: ");
+  Serial.println(ssid);
+  Serial.print("password: ");
+  Serial.println(password);
+  Serial.print("project server: ");
+  Serial.println(serverName);
+  Serial.print("project id: ");
+  Serial.println(projectId);
+  Serial.print("client email: ");
+  Serial.println(clientEmail);
+  Serial.print("private key: ");
+  Serial.println(privateKey);
 
   lcd.begin(16, 2);
+  if(ssid == "" || password == "" || serverName == "" || projectId == "" || clientEmail == ""){
+    awaitConfig();
+  }
+
+  privateKey = "-----BEGIN PRIVATE KEY-----\n" + privateKey + "\n-----END PRIVATE KEY-----\n";
+  Serial.println(privateKey);
+
   printLcd("Dispense-O-Tron", "9000");
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(soft_ap_ssid, soft_ap_password);
-  WiFi.begin(ssid, password);
+  WiFi.begin(ssid.c_str(), password.c_str());
   Serial.println("\nConnecting");
 
-  while(WiFi.status() != WL_CONNECTED){
+  int wifiStartTime = millis();
+  while(WiFi.status() != WL_CONNECTED && millis() - wifiStartTime < wifiTimeout){
       Serial.print(".");
       delay(100);
+  }
+  if(WiFi.status() != WL_CONNECTED){
+    WiFi.disconnect(true);
+    awaitWifi();
   }
 
   Serial.println("\nConnected to the WiFi network");
@@ -66,12 +121,10 @@ void setup(){
   client.setInsecure();
   Serial.print("ap ip: ");
   Serial.println(WiFi.softAPIP());
-  webSocket.begin();
-  webSocket.onEvent(webSocketEvent);
 
-  signerConfig.service_account.data.client_email = CLIENT_EMAIL;
-  signerConfig.service_account.data.project_id = PROJECT_ID;
-  signerConfig.service_account.data.private_key = PRIVATE_KEY;
+  signerConfig.service_account.data.client_email = clientEmail.c_str();
+  signerConfig.service_account.data.project_id = projectId.c_str();
+  signerConfig.service_account.data.private_key = privateKey.c_str();
 
   signerConfig.signer.expiredSeconds = 3600;
 
@@ -80,7 +133,6 @@ void setup(){
   signerConfig.signer.tokens.scope = "https://www.googleapis.com/auth/cloud-platform, https://www.googleapis.com/auth/userinfo.email";
 
   signerConfig.token_status_callback = tokenStatusCallback;
-
   Signer.begin(&signerConfig);
   Serial.println("Awaiting access token");
   while(!Signer.tokenReady()){
@@ -90,11 +142,12 @@ void setup(){
 }
 
 void loop(){
+  httpServer.handleClient();
   webSocket.loop();
-  if(millis() - lastTime > sleepTime || millis() < lastTime){
+  bool tokenReady = Signer.tokenReady();
+  if((millis() - lastTime > sleepTime || millis() < lastTime) && tokenReady){
     lastTime = millis();
-    args = "?access_token=" + firebaseAccessToken;
-    serverPath = serverName + path + args;
+    serverPath = serverName + path + "?access_token=" + Signer.accessToken();
     Serial.println(serverPath);
     http.begin(client, serverPath);
       
@@ -114,13 +167,14 @@ void loop(){
       http.end();
     }
   }
-
 }
 
 void printLcd(String line_one, String line_two){
       line_one += "                            ";
       line_two += "                            ";
-      Serial.println("printlcd " + line_one + line_two);
+      Serial.print("printlcd ");
+      Serial.print(line_one);
+      Serial.println(line_two);
       lcd.setCursor(0, 0);
       lcd.print(line_one);
       lcd.setCursor(0, 1);
@@ -134,8 +188,7 @@ bool awaitPayment(int num, String colour){
 
 void removeOrder(String key){
   String removePath = "/orders/" + key + ".json";
-  String removeArgs = "?access_token=" + firebaseAccessToken;
-  String removeUri = serverName + removePath + removeArgs;
+  String removeUri = serverName + removePath + "?access_token=" + Signer.accessToken();
   http.begin(client, removeUri);
     
   int httpResponseCode = http.sendRequest("DELETE");
@@ -201,20 +254,143 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
   else if(type == WStype_DISCONNECTED){
     Serial.println("client disconnected");
   }
+  if(type == WStype_TEXT){
+    if(num == 0){
+      slaveReady = true;
+    }
+  }
+}
+
+void delayAndHandleClient(int delayTime, int numTimes){
+  for(int i = 0; i < numTimes; i++){
+    httpServer.handleClient();
+    webSocket.loop();
+    delay(delayTime);
+  }
+}
+
+void awaitConfig(){
+  while(true){
+    httpServer.handleClient();
+    printLcd("config required", "");
+    delayAndHandleClient(200, 15);
+    httpServer.handleClient();
+    printLcd("Connect to: ", soft_ap_ssid);
+    delayAndHandleClient(200, 15);
+    printLcd("Visit: ", WiFi.softAPIP().toString());
+    delayAndHandleClient(200, 15);
+  }
+}
+
+void awaitWifi(){
+  while(true){
+    httpServer.handleClient();
+    printLcd("WiFi failed", "to connect");
+    delayAndHandleClient(200, 15);
+    httpServer.handleClient();
+    printLcd("Connect to: ", soft_ap_ssid);
+    delayAndHandleClient(200, 15);
+    printLcd("Visit: ", WiFi.softAPIP().toString());
+    delayAndHandleClient(200, 15);
+  }
+}
+
+void handleGet() {
+  httpServer.send(200, "text/html", SendHTML()); 
+}
+
+void handlePost(){
+  String ssidArg = httpServer.arg("ssid");
+  String passArg = httpServer.arg("password");
+  String apSsidArg = httpServer.arg("ap_ssid");
+  String apPassArg = httpServer.arg("ap_password");
+  String projectServerArg = httpServer.arg("project_server");
+  String projectIdArg = httpServer.arg("project_id");
+  String clientEmailArg = httpServer.arg("client_email");
+  String privateKeyArg = httpServer.arg("private_key");
+  //important because html forms encode "\n" as "\\n" to escape newlines
+  //we need the new lines...
+  privateKeyArg.replace("\\n", "\n");
+  String oldLocalSsidArg = httpServer.arg("old_local_ssid");
+  String oldLocalPassArg = httpServer.arg("old_local_pass");
+  if(ssidArg == "" || passArg == "" || apSsidArg == "" || apPassArg == ""   || projectServerArg == "" || projectIdArg == "" || clientEmailArg == "" || privateKeyArg == ""){
+    httpServer.send(400, "text/plain", "missing required argument");
+  }
+  else if(oldLocalSsidArg != soft_ap_ssid || oldLocalPassArg != soft_ap_password){
+    httpServer.send(401, "text/plain", "old ssid and pass must match currently on board");
+  }
+  else{
+    httpServer.send(200, "text/plain", "success");
+    preferences.begin("dispenseo", false);
+    preferences.putString("ssid", ssidArg);
+    preferences.putString("password", passArg);
+    preferences.putString("ap_ssid", apSsidArg);
+    preferences.putString("ap_password", apPassArg);
+    preferences.putString("project_server", projectServerArg);
+    preferences.putString("project_id", projectIdArg);
+    preferences.putString("client_email", clientEmailArg);
+    preferences.putString("private_key", privateKeyArg);
+    preferences.end();
+    Serial.println("Restarting in 5 seconds");
+    delay(5000);
+    ESP.restart();
+  }
+}
+
+void handle_NotFound(){
+  httpServer.send(404, "text/plain", "Not found");
+}
+
+String SendHTML(){
+  return "<!DOCTYPE html>"
+  "<html><head>"
+  "<title>ESP Wi-Fi Manager</title>"
+  "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+  "</head>"
+  "<body>"
+  "<div class=\"topnav\">"
+  "<h1>Dispense-O-Tron 9000 Configurator</h1>"
+  "</div>"
+  "<div class=\"content\">"
+  "<div class=\"card-grid\">"
+  "<div class=\"card\">"
+  "<form action=\"/\" method=\"POST\" enctype=\"application/x-www-form-urlencoded\">"
+  "<p>"
+  "<label for=\"ssid\">SSID</label>"
+  "<input type=\"text\" id =\"ssid\" name=\"ssid\"><br>"
+  "<label for=\"password\">Password</label>"
+  "<input type=\"text\" id =\"password\" name=\"password\"><br>"
+  "<label for=\"ap_ssid\">AP SSID</label>"
+  "<input type=\"text\" id =\"ap_ssid\" name=\"ap_ssid\"><br>"
+  "<label for=\"ap_password\">AP Password</label>"
+  "<input type=\"text\" id =\"ap_password\" name=\"ap_password\"><br>"
+  "<label for=\"project_server\">Firebase Project Server</label>"
+  "<input type=\"text\" id =\"project_server\" name=\"project_server\"><br>"
+  "<label for=\"project_id\">Firebase Project ID</label>"
+  "<input type=\"text\" id =\"project_id\" name=\"project_id\"><br>"
+  "<label for=\"client_email\">Service Account Client Email</label>"
+  "<input type=\"text\" id =\"client_email\" name=\"client_email\"><br>"
+  "<label for=\"private_key\">Service Account Private Key (Do not include begin and end private key)</label>"
+  "<input type=\"text\" id =\"private_key\" name=\"private_key\"><br>"
+  "<label for=\"old_local_ssid\">Existing Local SSID</label>"
+  "<input type=\"text\" id =\"old_local_ssid\" name=\"old_local_ssid\"><br>"
+  "<label for=\"old_local_pass\">Existing Local Password</label>"
+  "<input type=\"text\" id =\"old_local_pass\" name=\"old_local_pass\"><br>"
+  "<input type =\"submit\" value =\"Submit\">"
+  "</p></form></div></div></body></html>";
 }
 
 void tokenStatusCallback(TokenInfo info)
 {
-  Serial.println("got new access token");
-  if (info.status != esp_signer_token_status_error)
-  {
-    Serial.printf("Token info: type = %s, status = %s\n", Signer.getTokenType(info).c_str(), Signer.getTokenStatus(info).c_str());
-    if (info.status == esp_signer_token_status_ready)
-      Serial.printf("Token: %s\n", Signer.accessToken().c_str());
-    firebaseAccessToken = Signer.accessToken().c_str();
-  }
-  else{
-    firebaseAccessToken = "";
-    Serial.println("Error");
-  }
+    if (info.status == esp_signer_token_status_error)
+    {
+        Serial.printf("Token info: type = %s, status = %s\n", Signer.getTokenType(info).c_str(), Signer.getTokenStatus(info).c_str());
+        Serial.printf("Token error: %s\n", Signer.getTokenError(info).c_str());
+    }
+    else
+    {
+        Serial.printf("Token info: type = %s, status = %s\n", Signer.getTokenType(info).c_str(), Signer.getTokenStatus(info).c_str());
+        if (info.status == esp_signer_token_status_ready)
+            Serial.printf("Token: %s\n", Signer.accessToken().c_str());
+    }
 }
