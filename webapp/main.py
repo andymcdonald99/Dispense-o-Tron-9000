@@ -31,7 +31,7 @@ def main(page: ft.Page):
     orderNumber = 0
 
     class User:
-        email = "blank"
+        email = "Guest"
         student = False
 
     def route_change(route):
@@ -259,9 +259,8 @@ def main(page: ft.Page):
         else:
             price = 2
         data = {
-            'orderNo': "1",
             'user': User.email,
-            'item': 'item1',
+            'item': '1',
             'price': price
         }
         db.child("orders").push(data)
@@ -273,9 +272,8 @@ def main(page: ft.Page):
         else:
             price = 4
         data = {
-            'orderNo': "2",
             'user': User.email,
-            'item': 'item2',
+            'item': '2',
             'price': price
         }
         db.child("orders").push(data)
