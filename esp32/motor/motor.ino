@@ -7,8 +7,8 @@ WiFiClient wifiClient;
 WebSocketsClient webSocket;
 
 const int stepsPerRevolution = 2048;
-Stepper stepperOne = Stepper(stepsPerRevolution, 26, 14, 27, 12);
-Stepper stepperTwo = Stepper(stepsPerRevolution, 26, 14, 27, 12);
+Stepper stepperOne = Stepper(stepsPerRevolution, 25, 27, 26, 14);
+Stepper stepperTwo = Stepper(stepsPerRevolution, 19, 5, 18, 17);
 
 const char* ssid = "DispenseOTron";
 const char* password = "90000000";
@@ -46,10 +46,10 @@ void loop()
 void moveMotor(int itemNumber){
   int stepPin;
   if(itemNumber == 1){
-    stepperOne.step(stepsPerRevolution * 3);
+    stepperOne.step(stepsPerRevolution * 2);
   }
   else{
-    stepperTwo.step(stepsPerRevolution * 3);
+    stepperTwo.step(-stepsPerRevolution * 2);
   }
 }
 

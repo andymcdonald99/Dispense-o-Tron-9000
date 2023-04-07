@@ -7,6 +7,7 @@
 #include <Preferences.h>
 #include <WebServer.h>
 
+const int PAYMENT_PIN = 18;
 //Variables stored in Non-volatile-storage
 String ssid;
 String password;
@@ -41,7 +42,7 @@ Preferences preferences;
 
 void printLcd(String line_one, String line_two);
 void moveMotor(int steps, int itemNumber);
-bool awaitPayment(int num, String colour);
+bool awaitPayment(int num);
 void dispense(int itemNumber);
 void handleFirebaseResponse(String payload);
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length);
@@ -57,6 +58,7 @@ void handleGet();
 
 void setup(){
   Serial.begin(115200);
+  pinMode(PAYMENT_PIN, INPUT);
   preferences.begin("dispenseo", true);
   soft_ap_ssid = preferences.getString("ap_ssid", "DispenseOTron");
   soft_ap_password = preferences.getString("ap_password", "90000000");
@@ -181,9 +183,25 @@ void printLcd(String line_one, String line_two){
       lcd.print(line_two);
 }
 
-bool awaitPayment(int num, String colour){
-  delay(2000);
-  return true;
+bool awaitPayment(int num){
+  int numPayments = 0;
+  Serial.println("awaiting payment");
+  int paymentStartTime = millis();
+  while(millis() - paymentStartTime < 30000 && numPayments < num){
+    if(digitalRead(PAYMENT_PIN) == LOW){
+      Serial.println("Recieved payment");
+      numPayments++;
+      String paid = "Paid: " + String(numPayments);
+      String required = "Remaining: " + String(num - numPayments);
+      printLcd(paid, required);
+      paymentStartTime = millis();
+      delay(1000);
+    }
+    if(numPayments == num){
+      return true;
+    }
+  }
+  return false;
 }
 
 void removeOrder(String key){
@@ -220,7 +238,7 @@ void handleFirebaseResponse(String payload){
         String cost = doc[key]["price"];
         String itemNoStr = doc[key]["item"];
         printLcd("Welcome " + name, "Pay: " + cost);
-        bool paid = awaitPayment(cost.toInt(), "blue");
+        bool paid = awaitPayment(cost.toInt());
         if(paid){
           printLcd("Dispensing...", "Item " + itemNoStr);
           dispense(itemNoStr);
@@ -275,7 +293,7 @@ void awaitConfig(){
     printLcd("config required", "");
     delayAndHandleClient(200, 15);
     httpServer.handleClient();
-    printLcd("Connect to: ", soft_ap_ssid);
+    printLcd(" Connect to:", soft_ap_ssid);
     delayAndHandleClient(200, 15);
     printLcd("Visit: ", WiFi.softAPIP().toString());
     delayAndHandleClient(200, 15);
