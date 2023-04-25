@@ -16,6 +16,7 @@ def main(page: ft.Page):
         "storageBucket": "dispens-o-tron.appspot.com",
         "messagingSenderId": "1048399231705",
         "appId": "1:1048399231705:web:846ee976b23e7db1089cc8",
+        "serviceAccount": "serviceCreds.json",
     }
     firebase = pyrebase.initialize_app(config)
     db = firebase.database()
@@ -123,7 +124,7 @@ def main(page: ft.Page):
                         ),
                         ft.Row(
                             [
-                                ft.Image(src=f"/1image.png",
+                                ft.Image(src=f"/lostmary.png",
                                          width=150,
                                          height=150),
                                 ft.ElevatedButton(text="Item 1", on_click=purchase1)
@@ -132,7 +133,7 @@ def main(page: ft.Page):
                         ),
                         ft.Row(
                             [
-                                ft.Image(src=f"/2image.jpg",
+                                ft.Image(src=f"/condom.png",
                                          width=150,
                                          height=150),
                                 ft.ElevatedButton(text="Item 2", on_click=purchase2)
@@ -336,6 +337,6 @@ def main(page: ft.Page):
 
 ft.app(target=main,
        port=8000,
-       #       view=ft.WEB_BROWSER,
+       view=ft.WEB_BROWSER,
        assets_dir="images"
        )
